@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>Remote My Mac</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main id="login">
+  <form id="form" autocomplete="off">
+    <h1>Remote My Mac</h1>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required maxlength="256">
+    <input id="totp" type="text" inputmode="numeric" placeholder="6-digit code" maxlength="6" autocomplete="one-time-code">
+    <button type="submit">Connect</button>
+    <p id="msg" role="alert"></p>
+  </form>
+</main>
+<div id="stage" class="hidden">
+  <canvas id="screen" tabindex="0"></canvas>
+  <div id="bar">
+    <span id="status">connecting…</span>
+    <span id="hint">Ctrl+Alt or Ctrl+X, then: <b>1</b> Sharp · <b>2</b> Balanced · <b>3</b> Game · <b>L</b> Mouse lock · <b>P</b> Two-finger drag</span>
+    <button id="bQ" title="Sharp / Balanced / Game (Ctrl+Alt+1/2/3 anywhere)">Quality</button>
+    <button id="bZm" title="Smaller UI (more screen)">A−</button>
+    <button id="bZp" title="Bigger UI">A+</button>
+    <button id="bClip" title="Copy/paste text between this browser and the Mac">Clipboard</button>
+    <button id="bAudio" title="Toggle audio">Audio on</button>
+    <button id="bCmd" title="Treat Ctrl as ⌘ (Chromebook shortcuts)">Ctrl→⌘ on</button>
+    <button id="bSpeed" title="Mouse look sensitivity (when the pointer is locked)">Look speed</button>
+    <button id="bTwo" title="Chromebook: slide two fingers = hold right button and move (camera look). Ctrl+Alt+P">Two-finger drag off</button>
+    <button id="bLock" title="Lock the mouse for games (Ctrl+Alt+L or Ctrl+X+L anywhere; click re-grabs after Esc)">Mouse lock off</button>
+    <button id="bFull">Fullscreen</button>
+    <button id="bOut">Disconnect</button>
+  </div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
