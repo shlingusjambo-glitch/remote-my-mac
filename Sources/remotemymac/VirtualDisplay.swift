@@ -11,6 +11,7 @@ final class VirtualDisplay {
     private var physical: CGDirectDisplayID = 0
     private var curW = 0, curH = 0
     private var lastChange = Date.distantPast
+    private var mirrorFailedAt = Date.distantPast   // macOS refused to mirror: back off briefly instead of retrying every request
     private(set) var id: CGDirectDisplayID = 0
     var active: Bool { vd != nil }
 
@@ -24,16 +25,32 @@ final class VirtualDisplay {
         return s
     }
 
-    private func mirror(_ display: CGDirectDisplayID, of master: CGDirectDisplayID) {
+    /// Makes `display` mirror `master` (or stop mirroring with kCGNullDirectDisplay). Returns false, and logs why, on failure.
+    @discardableResult
+    private func mirror(_ display: CGDirectDisplayID, of master: CGDirectDisplayID) -> Bool {
         var cfg: CGDisplayConfigRef?
-        guard CGBeginDisplayConfiguration(&cfg) == .success else { return }
-        CGConfigureDisplayMirrorOfDisplay(cfg, display, master)
-        if CGCompleteDisplayConfiguration(cfg, .forAppOnly) != .success { CGCancelDisplayConfiguration(cfg) }
+        let begin = CGBeginDisplayConfiguration(&cfg)
+        guard begin == .success else { log("mirror: CGBeginDisplayConfiguration failed (\(begin.rawValue))"); return false }
+        let conf = CGConfigureDisplayMirrorOfDisplay(cfg, display, master)
+        guard conf == .success else { log("mirror: CGConfigureDisplayMirrorOfDisplay failed (\(conf.rawValue))"); CGCancelDisplayConfiguration(cfg); return false }
+        let done = CGCompleteDisplayConfiguration(cfg, .forAppOnly)
+        if done != .success { log("mirror: CGCompleteDisplayConfiguration failed (\(done.rawValue))"); CGCancelDisplayConfiguration(cfg); return false }
+        return true
+    }
+
+    /// True once macOS really shows `display` as a mirror of `master` (the call above can succeed without any effect).
+    private func isMirroring(_ display: CGDirectDisplayID, of master: CGDirectDisplayID) -> Bool {
+        for _ in 0..<10 {                                            // the change is applied asynchronously
+            if CGDisplayMirrorsDisplay(display) == master || CGDisplayMirrorsDisplay(master) == display { return true }
+            usleep(100_000)
+        }
+        return false
     }
 
     @discardableResult
     func ensure(cssW: Int, cssH: Int, zoom: Double = 1, maxW: Double = 3840, mirror doMirror: Bool = true) -> Bool {
         guard cssW > 0, cssH > 0 else { return false }
+        if doMirror && Date().timeIntervalSince(mirrorFailedAt) < 30 { return false }
         // Logical desktop = tab size / zoom (so 1 point ~ 1 browser pixel at zoom 1), same exact shape,
         // capped at 3840 wide / 2160 tall and at least 800 wide.
         let aspect = Double(cssW) / Double(cssH)
@@ -60,14 +77,31 @@ final class VirtualDisplay {
         physical = CGMainDisplayID()
         vd = v; id = v.displayID; curW = w; curH = h; lastChange = Date()
         log("virtual display \(id) created at \(w)x\(h) for \(cssW)x\(cssH) tab; pixels \(CGDisplayPixelsWide(v.displayID))x\(CGDisplayPixelsHigh(v.displayID))")
-        usleep(600_000)
-        if doMirror { mirror(physical, of: id) }
+        // The new display is not usable until it reports a size; mirroring it earlier fails with "illegal argument" (1001).
+        for _ in 0..<40 where CGDisplayPixelsWide(id) == 0 || CGDisplayPixelsHigh(id) == 0 { usleep(100_000) }
+        usleep(300_000)
+        if doMirror {
+            // If the screen does not end up mirroring the virtual display, the stream would show (and the mouse would
+            // drive) an empty extra monitor placed beside the real one. Drop it and let the caller fall back instead.
+            var ok = false
+            for attempt in 0..<4 where !ok {
+                if attempt > 0 { usleep(500_000) }
+                physical = CGMainDisplayID() == id ? physical : CGMainDisplayID()
+                ok = mirror(physical, of: id) && isMirroring(physical, of: id)
+            }
+            if !ok {
+                log("virtual display \(id) could not mirror the screen; removing it and using the real display")
+                mirrorFailedAt = Date()
+                teardown()
+                return false
+            }
+        }
         return true
     }
 
     func teardown() {
         guard vd != nil else { return }
-        if physical != 0 { mirror(physical, of: kCGNullDirectDisplay) }
+        if physical != 0 && (CGDisplayMirrorsDisplay(physical) != kCGNullDirectDisplay) { mirror(physical, of: kCGNullDirectDisplay) }
         vd = nil; id = 0; curW = 0; curH = 0
         log("virtual display removed; screen restored")
     }

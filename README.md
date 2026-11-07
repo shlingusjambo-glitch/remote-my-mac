@@ -27,6 +27,15 @@ Licensed **GPL-3.0-or-later**.
 **Remember:** anyone who logs in controls your Mac as you. Use a unique passphrase, keep Cloudflare Access on, and enable FileVault + a lock screen.
 Known limits: no end-to-end encryption beyond TLS-to-Cloudflare (Cloudflare can technically see traffic); keyboard mapping assumes US layout; single display (main).
 
+### Pointer lock (Cloud gaming, browser games)
+
+Games and streaming players grab the mouse with the Pointer Lock API. Most pass
+`{unadjustedMovement: true}`, which on macOS switches Chromium to a raw-input path where injected
+movement arrives as `movementX === 0` — the cursor is frozen even though scrolling and clicking still
+work. No amount of OS-level injection can fix that, so the page has to be nudged back onto the
+adjusted path; see [`extras/xcloud-lockfix`](extras/xcloud-lockfix) for the one-file extension that
+does it (load unpacked, then reload the game tab).
+
 ## Install
 ```bash
 ./scripts/install.sh

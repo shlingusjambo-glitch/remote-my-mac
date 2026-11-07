@@ -88,7 +88,7 @@ function onBinary(v) {
     const ts = Number(v.getBigUint64(6));
     try { decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: ts, data: new Uint8Array(v.buffer, 14) })); }
     catch (e) { needKey = true; ws.send('{"t":"key"}'); }
-  } else if (type === 2 && audioOn && audioCtx) {
+  } else if (type === 2 && audioOn) {
     playAudio(v);
   }
 }
@@ -97,8 +97,16 @@ function onBinary(v) {
   requestAnimationFrame(draw);
 })();
 
+function unlockAudio() {
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, unlockAudio, { passive: true }));
+
 // ---- audio (48 kHz stereo int16) ----
 function playAudio(v) {
+  unlockAudio();
+  if (!audioCtx) return;
   const n = (v.byteLength - 1) >> 2;
   const buf = audioCtx.createBuffer(2, n, 48000);
   const l = buf.getChannelData(0), r = buf.getChannelData(1);

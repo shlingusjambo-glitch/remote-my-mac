@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "xCloud mouse fix",
+  "version": "1.0",
+  "description": "Forces pointer lock into the adjusted (non-raw) path so synthetic mouse input works over a remote-desktop layer.",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["fix.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    }
+  ]
+}

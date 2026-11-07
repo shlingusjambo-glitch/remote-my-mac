@@ -211,7 +211,7 @@ final class Conn {
             "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n" +
             "X-Frame-Options: DENY\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n" +
             "Strict-Transport-Security: max-age=63072000; includeSubDomains\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Resource-Policy: same-origin\r\n" +
-            "Permissions-Policy: camera=(), microphone=(), geolocation=()\r\n\r\n"
+            "Permissions-Policy: camera=(), microphone=(), geolocation=(), autoplay=(self)\r\n\r\n"
         nw.send(content: Data(head.utf8) + b, completion: .contentProcessed { [weak self] _ in if shut { self?.close() } })
     }
 

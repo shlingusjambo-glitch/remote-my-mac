@@ -99,6 +99,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var dropped = false
     private var lastCodec = ""
     private var quality = 1
+    private var fitZoom = 0.0
     // Quality presets: 0 Sharp, 1 Balanced, 2 Game (smaller desktop + stream, lower bitrate)
     private let desktopCap: [Double] = [3840, 2200, 1500]
     private let streamCap: [Double] = [3840, 2560, 1500]
@@ -118,7 +119,13 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             let qChanged = qi != self.quality
             self.quality = qi
             if qChanged { self.enc?.bpsCap = self.bitrateCap[qi]; self.enc?.invalidate() }
-            if !VirtualDisplay.shared.ensure(cssW: cssW, cssH: cssH, zoom: zoom, maxW: self.desktopCap[qi]) { DisplayFit.fit(cssW: cssW, cssH: cssH) }
+            // Reshape the screen only when a viewer connects or changes zoom. Resizing it on every window resize makes macOS
+            // rebuild the mirrored displays mid-stream, which loses the capture and leaves the mouse mapped to the wrong size;
+            // later resizes are handled by letterboxing in the browser, whose mouse mapping accounts for it.
+            if self.sink !== c || zoom != self.fitZoom || qChanged {
+                self.fitZoom = zoom
+                if !VirtualDisplay.shared.ensure(cssW: cssW, cssH: cssH, zoom: zoom, maxW: self.desktopCap[qi]) { DisplayFit.fit(cssW: cssW, cssH: cssH) }
+            }
             let changed = qChanged || self.sink !== c || w != self.viewW || h != self.viewH
             self.sink = c; self.viewW = w; self.viewH = h
             if self.stream == nil { self.start() }
@@ -260,16 +267,54 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     private func sendAudio(_ sb: CMSampleBuffer, _ sink: Conn) {
         let n = CMSampleBufferGetNumSamples(sb)
         guard n > 0 else { return }
+        guard let fd = CMSampleBufferGetFormatDescription(sb),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd)?.pointee else { return }
+
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let bits = Int(asbd.mBitsPerChannel)
+
         try? sb.withAudioBufferList { abl, _ in
+            guard abl.count > 0 else { return }
             var pcm = [Int16](repeating: 0, count: n * 2)
-            func s16(_ f: Float) -> Int16 { Int16(max(-1, min(1, f)) * 32767) }
-            if abl.count >= 2 {     // planar float32
-                guard let l = abl[0].mData?.assumingMemoryBound(to: Float.self), let r = abl[1].mData?.assumingMemoryBound(to: Float.self) else { return }
-                for i in 0..<n { pcm[2*i] = s16(l[i]); pcm[2*i+1] = s16(r[i]) }
-            } else if let b = abl.first, let p = b.mData?.assumingMemoryBound(to: Float.self) {
-                let ch = Int(b.mNumberChannels)
-                for i in 0..<n { pcm[2*i] = s16(p[i*ch]); pcm[2*i+1] = s16(p[i*ch + (ch > 1 ? 1 : 0)]) }
+
+            func s16FromFloat(_ f: Float) -> Int16 {
+                Int16(max(-32768, min(32767, f * 32767)))
             }
+
+            if isFloat && bits == 32 {
+                if abl.count >= 2 { // non-interleaved stereo Float32
+                    guard let l = abl[0].mData?.assumingMemoryBound(to: Float.self),
+                          let r = abl[1].mData?.assumingMemoryBound(to: Float.self) else { return }
+                    for i in 0..<n {
+                        pcm[2*i] = s16FromFloat(l[i])
+                        pcm[2*i+1] = s16FromFloat(r[i])
+                    }
+                } else if let b = abl.first, let p = b.mData?.assumingMemoryBound(to: Float.self) {
+                    let ch = max(1, Int(b.mNumberChannels))
+                    for i in 0..<n {
+                        pcm[2*i] = s16FromFloat(p[i*ch])
+                        pcm[2*i+1] = s16FromFloat(p[i*ch + (ch > 1 ? 1 : 0)])
+                    }
+                }
+            } else if !isFloat && bits == 16 {
+                if abl.count >= 2 { // non-interleaved stereo Int16
+                    guard let l = abl[0].mData?.assumingMemoryBound(to: Int16.self),
+                          let r = abl[1].mData?.assumingMemoryBound(to: Int16.self) else { return }
+                    for i in 0..<n {
+                        pcm[2*i] = l[i]
+                        pcm[2*i+1] = r[i]
+                    }
+                } else if let b = abl.first, let p = b.mData?.assumingMemoryBound(to: Int16.self) {
+                    let ch = max(1, Int(b.mNumberChannels))
+                    for i in 0..<n {
+                        pcm[2*i] = p[i*ch]
+                        pcm[2*i+1] = p[i*ch + (ch > 1 ? 1 : 0)]
+                    }
+                }
+            } else {
+                return
+            }
+
             var pkt = Data([2])
             pcm.withUnsafeBytes { pkt.append(contentsOf: $0) }
             sink.sendBinary(pkt)
